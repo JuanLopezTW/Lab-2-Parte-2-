@@ -4,6 +4,7 @@ import java.awt.BorderLayout;
 import java.awt.EventQueue;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import javax.swing.JFrame;
 import javax.swing.JPanel;
@@ -35,6 +36,7 @@ public class ControlFrame extends JFrame {
     private JLabel statisticsLabel;
     private JScrollPane scrollPane;
     private JTextField numOfImmortals;
+    private HighlanderPauseController pauseController;
 
     /**
      * Launch the application.
@@ -73,7 +75,9 @@ public class ControlFrame extends JFrame {
                 immortals = setupInmortals();
 
                 if (immortals != null) {
+                    pauseController = new HighlanderPauseController(immortals.size());
                     for (Immortal im : immortals) {
+                        im.setPauseController(pauseController);
                         im.start();
                     }
                 }
@@ -88,17 +92,23 @@ public class ControlFrame extends JFrame {
         btnPauseAndCheck.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
 
-                /*
-				 * COMPLETAR
-                 */
+                if (pauseController == null) {
+                    return; // no ha arrancado la simulación todavía
+                }
+
+                try {
+                    pauseController.pauseAndAwaitAll(); // NUEVO: bloquea hasta que TODOS confirmen pausa
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+
                 int sum = 0;
                 for (Immortal im : immortals) {
                     sum += im.getHealth();
                 }
 
-                statisticsLabel.setText("<html>"+immortals.toString()+"<br>Health sum:"+ sum);
-                
-                
+                statisticsLabel.setText("<html>" + immortals.toString() + "<br>Health sum:" + sum);
 
             }
         });
@@ -108,10 +118,9 @@ public class ControlFrame extends JFrame {
 
         btnResume.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
-                /**
-                 * IMPLEMENTAR
-                 */
-
+                if (pauseController != null) {
+                    pauseController.resumeAll();
+                }
             }
         });
 
@@ -126,7 +135,23 @@ public class ControlFrame extends JFrame {
         numOfImmortals.setColumns(10);
 
         JButton btnStop = new JButton("STOP");
+
         btnStop.setForeground(Color.RED);
+        btnStop.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                if (immortals != null) {
+                    for (Immortal im : immortals) {
+                        im.interrupt();
+                    }
+                }
+                if (pauseController != null) {
+                    pauseController.resumeAll();
+                }
+                pauseController = null;
+                btnStart.setEnabled(true);
+            }
+        });
+
         toolBar.add(btnStop);
 
         scrollPane = new JScrollPane();
@@ -135,8 +160,8 @@ public class ControlFrame extends JFrame {
         output = new JTextArea();
         output.setEditable(false);
         scrollPane.setViewportView(output);
-        
-        
+
+
         statisticsLabel = new JLabel("Immortals total health:");
         contentPane.add(statisticsLabel, BorderLayout.SOUTH);
 
@@ -144,15 +169,15 @@ public class ControlFrame extends JFrame {
 
     public List<Immortal> setupInmortals() {
 
-        ImmortalUpdateReportCallback ucb=new TextAreaUpdateReportCallback(output,scrollPane);
-        
+        ImmortalUpdateReportCallback ucb = new TextAreaUpdateReportCallback(output, scrollPane);
+
         try {
             int ni = Integer.parseInt(numOfImmortals.getText());
 
-            List<Immortal> il = new LinkedList<Immortal>();
+            List<Immortal> il = new CopyOnWriteArrayList<Immortal>(); // <- este es el cambio clave
 
             for (int i = 0; i < ni; i++) {
-                Immortal i1 = new Immortal("im" + i, il, DEFAULT_IMMORTAL_HEALTH, DEFAULT_DAMAGE_VALUE,ucb);
+                Immortal i1 = new Immortal("im" + i, il, DEFAULT_IMMORTAL_HEALTH, DEFAULT_DAMAGE_VALUE, ucb);
                 il.add(i1);
             }
             return il;
