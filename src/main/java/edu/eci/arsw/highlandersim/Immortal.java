@@ -6,9 +6,9 @@ import java.util.Random;
 public class Immortal extends Thread {
 
     private ImmortalUpdateReportCallback updateCallback=null;
-    
+
     private int health;
-    
+
     private int defaultDamageValue;
 
     private final List<Immortal> immortalsPopulation;
@@ -16,6 +16,8 @@ public class Immortal extends Thread {
     private final String name;
 
     private final Random r = new Random(System.currentTimeMillis());
+
+    private HighlanderPauseController pauseController;
 
 
     public Immortal(String name, List<Immortal> immortalsPopulation, int health, int defaultDamageValue, ImmortalUpdateReportCallback ucb) {
@@ -27,28 +29,57 @@ public class Immortal extends Thread {
         this.defaultDamageValue=defaultDamageValue;
     }
 
+    public void setPauseController(HighlanderPauseController pauseController) {
+        this.pauseController = pauseController;
+    }
+
     public void run() {
 
         while (true) {
             Immortal im;
 
-            int myIndex = immortalsPopulation.indexOf(this);
-
-            int nextFighterIndex = r.nextInt(immortalsPopulation.size());
-
-            //avoid self-fight
-            if (nextFighterIndex == myIndex) {
-                nextFighterIndex = ((nextFighterIndex + 1) % immortalsPopulation.size());
+            try {
+                pauseController.checkpoint();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
             }
 
-            im = immortalsPopulation.get(nextFighterIndex);
+            try {
+                if (this.health <= 0) {
+                    Thread.sleep(1);
+                    continue;
+                }
 
-            this.fight(im);
+                int size = immortalsPopulation.size();
+                if (size <= 1) {
+                    Thread.sleep(1);
+                    continue;
+                }
+
+                int myIndex = immortalsPopulation.indexOf(this);
+                int nextFighterIndex = r.nextInt(size);
+
+                if (nextFighterIndex == myIndex) {
+                    nextFighterIndex = ((nextFighterIndex + 1) % size);
+                }
+
+                im = immortalsPopulation.get(nextFighterIndex);
+                this.fight(im);
+
+            } catch (IndexOutOfBoundsException ex) {
+
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+
 
             try {
                 Thread.sleep(1);
             } catch (InterruptedException e) {
-                e.printStackTrace();
+                Thread.currentThread().interrupt();
+                return;
             }
 
         }
@@ -57,12 +88,33 @@ public class Immortal extends Thread {
 
     public void fight(Immortal i2) {
 
-        if (i2.getHealth() > 0) {
-            i2.changeHealth(i2.getHealth() - defaultDamageValue);
-            this.health += defaultDamageValue;
-            updateCallback.processReport("Fight: " + this + " vs " + i2+"\n");
-        } else {
-            updateCallback.processReport(this + " says:" + i2 + " is already dead!\n");
+        Immortal first = this;
+        Immortal second = i2;
+
+        if (this.name.compareTo(i2.name) > 0) {
+            first = i2;
+            second = this;
+        }
+
+        synchronized (first) {
+            synchronized (second) {
+                if (this.health <= 0){
+                   return;
+                }
+                if (i2.getHealth() > 0) {
+                    int newHealth = i2.getHealth() - defaultDamageValue;
+                    i2.changeHealth(newHealth);
+                    this.health += defaultDamageValue;
+                    updateCallback.processReport("Fight: " + this + " vs " + i2 + "\n");
+
+                    if (newHealth <= 0) {
+                        immortalsPopulation.remove(i2);
+                        updateCallback.processReport(i2 + " has died and was removed.\n");
+                    }
+                } else {
+                    updateCallback.processReport(this + " says:" + i2 + " is already dead!\n");
+                }
+            }
         }
 
     }
