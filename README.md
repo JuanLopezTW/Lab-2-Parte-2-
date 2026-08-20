@@ -5,7 +5,7 @@
 
 #### Ejercicio – programación concurrente, condiciones de carrera y sincronización de hilos. EJERCICIO INDIVIDUAL O EN PAREJAS.
 
-### Juan Manuel Lopez Barrera - Laura Santiago
+### Juan Manuel Lopez Barrera - Laura Valentina Santiago Marquez
 
 ##### Parte I – Antes de terminar la clase.
 
