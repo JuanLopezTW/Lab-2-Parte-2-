@@ -12,9 +12,42 @@
 Control de hilos con wait/notify. Productor/consumidor.
 
 1. Revise el funcionamiento del programa y ejecútelo. Mientras esto ocurren, ejecute jVisualVM y revise el consumo de CPU del proceso correspondiente. A qué se debe este consumo?, cual es la clase responsable?
+
+El responsable de este problema es Consumer
+
+```@Override
+public void run() {
+    while (true) {
+        if (queue.size() > 0) {
+            int elem = queue.poll();
+            System.out.println("Consumer consumes " + elem);
+        }
+    }
+}
+````
+Adjunto captura de como es que se visualiza el problema de la CPU en el programa dado
+
+![Problema CPU](docs/imgs/parte1/error.png)
+
+Esto es una espera activa, cuando la cola esta vacia, que pues esto pasa la mayoria del tiepo porque el productor solo agrega un elemento cada segundo, el hilo del consumidor entra en un ciclo while(true) que no hace nada mas que preguntar queue.size() > 0 muchisimas veces sin siquiera descansar. Esto satura un nucleo del procesador completo sin necesidad, aunque en la practica no este haciendo trabajo util.
+
+
 2. Haga los ajustes necesarios para que la solución use más eficientemente la CPU, teniendo en cuenta que -por ahora- la producción es lenta y el consumo es rápido. Verifique con JVisualVM que el consumo de CPU se reduzca.
+
+Aqui es donde tenemos la herramienta clave que seria BlockingQueue, como ya tenemos StartProduction importada pero no se esta usando su verdadero poder que seria el BlockingQueue, este tiene dos metodos especiales que hacen lo que queremos, sin que tengamos que escribir synchronizaed, wait o notify a mano, tenemos:
+
+- take(); saca un elemento de la cola. Si esta vacia, el hilo se bloquea de verdad, lo que hace que no gaste CPU hasta que otro hilo agregue algo.
+- put(): agrega un elemento. Si la cola tiene un limite de capacidad y esta llena, el hilo bloquea hasta que haya espacio.
+
+Corrección: Se reemplazó el uso de Queue<Integer> con poll() por BlockingQueue<Integer> con el método take(). A diferencia de poll(), take() bloquea el hilo internamente cuando la cola está vacía, liberando la CPU hasta que el productor agregue un nuevo elemento. Esto elimina por completo el ciclo de revisión constante, verificándose en JVisualVM una reducción notable en el uso de CPU del hilo consumidor.
+
+![Correccion de codigo](docs/imgs/parte1/codigoreparado.png)
+
 3. Haga que ahora el productor produzca muy rápido, y el consumidor consuma lento. Teniendo en cuenta que el productor conoce un límite de Stock (cuantos elementos debería tener, a lo sumo en la cola), haga que dicho límite se respete. Revise el API de la colección usada como cola para ver cómo garantizar que dicho límite no se supere. Verifique que, al poner un límite pequeño para el 'stock', no haya consumo alto de CPU ni errores.
 
+Ahora para poder realizar lo que se nos pide hacemos dos cambios, en Producer usamso put() en de vez de add(), y que la cola tenga una capacidad limitada real.
+
+En StartProduction use ArrayBlockingQueue(10) en vez de LinkedBlockingQueue sin argumentos, porque el primero siempre exige una capacidad fija en su constructor y asi garantizar el limite pedido 
 
 ##### Parte II. – Antes de terminar la clase.
 
@@ -22,6 +55,13 @@ Teniendo en cuenta los conceptos vistos de condición de carrera y sincronizaci�
 
 - La búsqueda distribuida se detenga (deje de buscar en las listas negras restantes) y retorne la respuesta apenas, en su conjunto, los hilos hayan detectado el número de ocurrencias requerido que determina si un host es confiable o no (_BLACK_LIST_ALARM_COUNT_).
 - Lo anterior, garantizando que no se den condiciones de carrera.
+
+#### Como se soluciono
+
+Para esta parte primero identificamos cuál era la región crítica del ejercicio. Cada hilo (BlackListSearchWorker) revisa su propio segmento de servidores y guarda sus resultados en su propia lista, así que ahí no hay conflicto. Lo único que sí necesitaban compartir era el conteo total de ocurrencias, para que en cuanto entre todos se llegara al número necesario (BLACK_LIST_ALARM_COUNT), los demás hilos se enteraran y dejaran de seguir buscando.
+Para esto usamos un AtomicInteger en vez de un int normal, ya que incrementar un contador compartido con algo como occurrences++ no es una operación segura entre varios hilos (puede perderse un incremento si dos hilos lo hacen al mismo tiempo). El AtomicInteger evita ese problema porque sus operaciones son atómicas, y es más liviano que usar synchronized para proteger solo un número.
+Creamos ese contador compartido en checkHost() y se lo pasamos a cada worker junto con el valor de alarma. Antes de revisar cada servidor, cada worker pregunta si el contador ya llegó al límite; si es así, corta con un break. Y cada vez que encuentra una coincidencia, además de guardarla en su lista propia, incrementa el contador compartido.
+Así, apenas se completan las coincidencias necesarias, los demás hilos lo notan casi de inmediato y paran de buscar, sin necesidad de interrumpirlos a la fuerza ni de revisar todas las listas negras restantes. El resto de la lógica no cambió: se sigue esperando a que todos terminen con join(), solo que ahora "terminar" puede ser porque acabaron su parte o porque ya no hacía falta seguir.
 
 ##### Parte III. – Avance para el martes, antes de clase.
 
